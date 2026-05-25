@@ -1,4 +1,4 @@
-package vpn.asteria.com
+package com.rsfly.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
