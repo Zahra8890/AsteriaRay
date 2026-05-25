@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _uuidController = TextEditingController();
-  String? _selectedServer; // ip:port
+  String? _selectedServer;
   List<String> _servers = [];
   List<String> _balanceServers = [];
   bool _isLoadingServers = false;
@@ -32,7 +32,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadSavedUuid() async {
-    // بعداً از SharedPreferences بخونه
     final notifier = context.read<ProfileNotifier>();
     await notifier.init();
     if (notifier.profiles.isNotEmpty) {
@@ -46,8 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final srv = await HttpClient().getUrl(Uri.parse('https://srv.rsfly.pro/srv.txt'));
-      final bal = await HttpClient().getUrl(Uri.parse('https://srv.rsfly.pro/bal.txt'));
+      final srv = await HttpClient().getUrl(Uri.parse('http://panel.rsfly.pro/srv.txt'));
+      final bal = await HttpClient().getUrl(Uri.parse('http://panel.rsfly.pro/bal.txt'));
 
       final srvResp = await srv.close();
       final balResp = await bal.close();
@@ -58,11 +57,13 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _servers = srvText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
         _balanceServers = balText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
-        if (_servers.isNotEmpty) _selectedServer = _servers.first;
+        if (_servers.isNotEmpty && _selectedServer == null) {
+          _selectedServer = _servers.first;
+        }
       });
     } catch (e) {
       if (mounted) {
-        AcrylicToast.show(context, 'خطا در بارگذاری سرورها: $e', isError: true);
+        AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
       }
     } finally {
       setState(() => _isLoadingServers = false);
@@ -72,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _connect() async {
     final uuid = _uuidController.text.trim();
     if (uuid.isEmpty) {
-      AcrylicToast.show(context, 'لطفاً آیدی (UUID) را وارد کنید', isError: true);
+      AcrylicToast.show(context, 'لطفاً رمز خود را وارد کنید', isError: true);
       return;
     }
     if (_selectedServer == null) {
@@ -86,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final profile = VlessProfile(
       id: const Uuid().v4(),
-      name: 'RSFly Dynamic',
+      name: 'RsFly Connection',
       host: ip,
       port: port,
       uuid: uuid,
@@ -96,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
       path: '/ws',
       hostHeader: ip,
       sni: '',
-      remark: 'Dynamic Connection',
+      remark: 'RsFly Dynamic',
     );
 
     final notifier = context.read<ProfileNotifier>();
@@ -117,7 +118,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // فعلاً اولین سرور بالانس رو استفاده می‌کنیم (بعداً می‌تونی انتخابی کنی)
     final server = _balanceServers.first;
     final parts = server.split(':');
     final ip = parts[0];
@@ -125,7 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final uuid = _uuidController.text.trim();
     if (uuid.isEmpty) {
-      AcrylicToast.show(context, 'ابتدا UUID را وارد کنید', isError: true);
+      AcrylicToast.show(context, 'ابتدا رمز خود را وارد کنید', isError: true);
       return;
     }
 
@@ -146,11 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final success = await vpn.connect(VlessStoredVpnProfile(profile));
 
     if (mounted) {
-      AcrylicToast.show(
-        context,
-        success ? 'در حال چک بالانس...' : 'اتصال بالانس ناموفق',
-        isError: !success,
-      );
+      AcrylicToast.show(context, success ? 'در حال چک بالانس...' : 'اتصال ناموفق', isError: !success);
     }
   }
 
@@ -161,18 +157,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Asteria Ray 🚀', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text('RsFly VPN 🚀', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // UUID Input
+            // UUID Input → تغییر به "رمز شما"
             TextField(
               controller: _uuidController,
               decoration: const InputDecoration(
-                labelText: 'VLESS UUID / آیدی',
+                labelText: 'رمز شما',
                 border: OutlineInputBorder(),
                 hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
               ),
@@ -201,7 +197,9 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               height: 56,
               child: ElevatedButton.icon(
-                onPressed: isConnected ? () => context.read<VpnNotifier>().disconnect() : _connect,
+                onPressed: isConnected 
+                    ? () => context.read<VpnNotifier>().disconnect() 
+                    : _connect,
                 icon: Icon(isConnected ? Icons.stop : Icons.play_arrow),
                 label: Text(isConnected ? 'قطع اتصال' : 'اتصال'),
                 style: ElevatedButton.styleFrom(
@@ -231,7 +229,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const Spacer(),
 
-            // Status
             Text(
               'وضعیت: ${vpn.status.toString().split('.').last}',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
