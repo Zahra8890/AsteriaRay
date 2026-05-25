@@ -1,4 +1,4 @@
-package vpn.asteria.com
+package com.rsfly.vpn
 
 import android.app.ActivityManager
 import android.content.Context
