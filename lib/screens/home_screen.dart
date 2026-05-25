@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:http/http.dart' as http;
 import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../models/vless_types.dart';
@@ -21,50 +22,27 @@ class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _uuidController = TextEditingController();
   String? _selectedServer;
   List<String> _servers = [];
-  List<String> _balanceServers = [];
   bool _isLoadingServers = false;
+  String _balanceInfo = '';
 
   @override
   void initState() {
     super.initState();
     _loadServers();
-    _loadSavedUuid();
-  }
-
-  Future<void> _loadSavedUuid() async {
-    final notifier = context.read<ProfileNotifier>();
-    await notifier.init();
-    if (notifier.profiles.isNotEmpty) {
-      final p = notifier.profiles.first;
-      if (p is VlessStoredVpnProfile) {
-        _uuidController.text = p.profile.uuid;
-      }
-    }
   }
 
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final srv = await HttpClient().getUrl(Uri.parse('http://panel.rsfly.pro/srv.txt'));
-      final bal = await HttpClient().getUrl(Uri.parse('http://panel.rsfly.pro/bal.txt'));
-
-      final srvResp = await srv.close();
-      final balResp = await bal.close();
-
-      final srvText = await srvResp.transform(SystemEncoding().decoder).join();
-      final balText = await balResp.transform(SystemEncoding().decoder).join();
-
-      setState(() {
-        _servers = srvText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
-        _balanceServers = balText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
-        if (_servers.isNotEmpty && _selectedServer == null) {
-          _selectedServer = _servers.first;
-        }
-      });
-    } catch (e) {
-      if (mounted) {
-        AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
+      final response = await http.get(Uri.parse('https://srv.rsfly.pro/srv.txt'));
+      if (response.statusCode == 200) {
+        setState(() {
+          _servers = response.body.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
+          if (_servers.isNotEmpty) _selectedServer = _servers.first;
+        });
       }
+    } catch (e) {
+      AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
     } finally {
       setState(() => _isLoadingServers = false);
     }
@@ -93,11 +71,11 @@ class _HomeScreenState extends State<HomeScreen> {
       uuid: uuid,
       security: 'none',
       encryption: 'none',
-      transport: VlessTransport.ws,
-      path: '/ws',
-      hostHeader: ip,
+      transport: VlessTransport.tcp,        // تغییر به tcp (مطابق مثال شما)
+      path: '',
+      hostHeader: '',
       sni: '',
-      remark: 'RsFly Dynamic',
+      remark: 'RsFly',
     );
 
     final notifier = context.read<ProfileNotifier>();
@@ -113,40 +91,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _checkBalance() async {
-    if (_balanceServers.isEmpty) {
-      AcrylicToast.show(context, 'لیست بالانس خالی است', isError: true);
-      return;
-    }
-
-    final server = _balanceServers.first;
-    final parts = server.split(':');
-    final ip = parts[0];
-    final port = int.parse(parts[1]);
-
     final uuid = _uuidController.text.trim();
     if (uuid.isEmpty) {
       AcrylicToast.show(context, 'ابتدا رمز خود را وارد کنید', isError: true);
       return;
     }
 
-    final profile = VlessProfile(
-      id: const Uuid().v4(),
-      name: 'Balance Check',
-      host: ip,
-      port: port,
-      uuid: uuid,
-      security: 'none',
-      encryption: 'none',
-      transport: VlessTransport.ws,
-      path: '/ws',
-      hostHeader: ip,
-    );
+    setState(() => _balanceInfo = 'در حال دریافت...');
 
-    final vpn = context.read<VpnNotifier>();
-    final success = await vpn.connect(VlessStoredVpnProfile(profile));
+    try {
+      final url = 'http://185.204.197.76:2096/sub/$uuid';   // ساب لینک
+      final response = await http.get(Uri.parse(url));
 
-    if (mounted) {
-      AcrylicToast.show(context, success ? 'در حال چک بالانس...' : 'اتصال ناموفق', isError: !success);
+      if (response.statusCode == 200) {
+        final body = response.body;
+        // استخراج Remained
+        final remainedMatch = RegExp(r'Remained\s*([\d.]+[A-Za-z]+)').firstMatch(body);
+        final remained = remainedMatch?.group(1) ?? 'نامشخص';
+
+        setState(() {
+          _balanceInfo = 'موجودی باقی‌مانده: $remained';
+        });
+      } else {
+        setState(() => _balanceInfo = 'خطا در دریافت اطلاعات');
+      }
+    } catch (e) {
+      setState(() => _balanceInfo = 'خطا: $e');
     }
   }
 
@@ -164,19 +134,17 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // UUID Input → تغییر به "رمز شما"
             TextField(
               controller: _uuidController,
               decoration: const InputDecoration(
-                labelText: 'رمز شما',
+                labelText: 'رمز شما (UUID)',
                 border: OutlineInputBorder(),
-                hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+                hintText: '6ec34d88-cc3f-4fdd-bc60-f72a266dca06',
               ),
               maxLines: 2,
             ),
             const SizedBox(height: 20),
 
-            // Server Selector
             if (_isLoadingServers)
               const CircularProgressIndicator()
             else
@@ -192,7 +160,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 30),
 
-            // Start / Stop Button
             SizedBox(
               width: double.infinity,
               height: 56,
@@ -212,7 +179,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 16),
 
-            // Check Balance Button
             SizedBox(
               width: double.infinity,
               height: 50,
@@ -227,11 +193,27 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+            const SizedBox(height: 20),
+
+            if (_balanceInfo.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _balanceInfo,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orange),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+
             const Spacer(),
 
             Text(
               'وضعیت: ${vpn.status.toString().split('.').last}',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 16),
             ),
           ],
         ),
