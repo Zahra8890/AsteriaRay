@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
-
+import 'package:uuid/uuid.dart';
+import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
-import '../models/vpn_protocol.dart';
+import '../models/vless_types.dart';
 import '../notifiers/profile_notifier.dart';
 import '../notifiers/vpn_notifier.dart';
 import '../widgets/acrylic_toast.dart';
@@ -17,247 +18,233 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _idController = TextEditingController();
-  bool _isFetching = false;
-  String _networkStatus = "وضعیت: قطع شده";
+  final TextEditingController _uuidController = TextEditingController();
+  String? _selectedServer; // ip:port
+  List<String> _servers = [];
+  List<String> _balanceServers = [];
+  bool _isLoadingServers = false;
 
-  final String _srvUrl = "https://srv.rsfly.pro/srv.txt";
-  final String _balUrl = "https://srv.rsfly.pro/bal.txt";
+  @override
+  void initState() {
+    super.initState();
+    _loadServers();
+    _loadSavedUuid();
+  }
 
-  // ۱. منطق دریافت آنلاین سرور و استارت زدن VPN پروژه‌ی AsteriaRay
-  Future<void> _handleVpnToggle(VpnNotifier vpnNotifier) async {
-    final vlessId = _idController.text.trim();
-    if (vlessId.isEmpty) {
-      AcrylicToast.show(context, 'لطفاً ابتدا آیدی VLESS را وارد کنید', icon: Icons.warning_rounded);
-      return;
-    }
-
-    // اگر متصل یا در حال اتصال بود، دیسکانکت کن
-    if (vpnNotifier.status == VpnStatus.connected || vpnNotifier.status == VpnStatus.connecting) {
-      await vpnNotifier.disconnect();
-      setState(() {
-        _networkStatus = "وضعیت: قطع شده";
-      });
-      return;
-    }
-
-    setState(() {
-      _isFetching = true;
-      _networkStatus = "در حال دریافت آدرس سرور...";
-    });
-
-    try {
-      final response = await http.get(Uri.parse(_srvUrl));
-      if (response.statusCode == 200) {
-        // پیدا کردن اولین خط حاوی اطلاعات سرور
-        final serverLine = response.body.split('\n').firstWhere((line) => line.trim().isNotEmpty, orElse: () => "");
-        
-        if (serverLine.contains(':')) {
-          final parts = serverLine.split(':');
-          final ip = parts[0].trim();
-          final port = int.parse(parts[1].trim());
-
-          // ساخت آبجکت نیتیو VlessProfile کاملاً مطابق با پارامترهای مجاز پروژه‌ی شما
-          final dynamicProfile = VlessProfile(
-            name: 'RSFly Dynamic',
-            host: ip,
-            port: port,
-            uuid: vlessId,
-            path: '/ws',
-            encryption: 'none',
-            security: 'none',
-            tls: false,
-            sni: '',
-          );
-
-          setState(() {
-            _networkStatus = "در حال اتصال به هسته Xray...";
-          });
-
-          // متصل کردن هسته با استفاده از کنترلر اصلی پروژه
-          final success = await vpnNotifier.connect(dynamicProfile);
-          
-          setState(() {
-            _networkStatus = success ? "متصل به سرور: $ip" : "خطا در برقراری تونل امن";
-          });
-        } else {
-          setState(() => _networkStatus = "خطا: فرمت فایل srv.txt معتبر نیست");
-        }
-      } else {
-        setState(() => _networkStatus = "خطا در واکشی اطلاعات: ${response.statusCode}");
+  Future<void> _loadSavedUuid() async {
+    // بعداً از SharedPreferences بخونه
+    final notifier = context.read<ProfileNotifier>();
+    await notifier.init();
+    if (notifier.profiles.isNotEmpty) {
+      final p = notifier.profiles.first;
+      if (p is VlessStoredVpnProfile) {
+        _uuidController.text = p.profile.uuid;
       }
+    }
+  }
+
+  Future<void> _loadServers() async {
+    setState(() => _isLoadingServers = true);
+    try {
+      final srv = await HttpClient().getUrl(Uri.parse('https://srv.rsfly.pro/srv.txt'));
+      final bal = await HttpClient().getUrl(Uri.parse('https://srv.rsfly.pro/bal.txt'));
+
+      final srvResp = await srv.close();
+      final balResp = await bal.close();
+
+      final srvText = await srvResp.transform(SystemEncoding().decoder).join();
+      final balText = await balResp.transform(SystemEncoding().decoder).join();
+
+      setState(() {
+        _servers = srvText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
+        _balanceServers = balText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
+        if (_servers.isNotEmpty) _selectedServer = _servers.first;
+      });
     } catch (e) {
-      setState(() => _networkStatus = "خطا در ارتباط با تکست سرور اصلی");
+      if (mounted) {
+        AcrylicToast.show(context, 'خطا در بارگذاری سرورها: $e', isError: true);
+      }
     } finally {
-      setState(() {
-        _isFetching = false;
-      });
+      setState(() => _isLoadingServers = false);
     }
   }
 
-  // ۲. منطق دکمه بررسی موجودی حساب و فراخوانی ساب سرور
-  Future<void> _checkAccountBalance() async {
-    final vlessId = _idController.text.trim();
-    if (vlessId.isEmpty) {
-      AcrylicToast.show(context, 'ابتدا آیدی VLESS را وارد کنید', icon: Icons.error_outline);
+  Future<void> _connect() async {
+    final uuid = _uuidController.text.trim();
+    if (uuid.isEmpty) {
+      AcrylicToast.show(context, 'لطفاً آیدی (UUID) را وارد کنید', isError: true);
+      return;
+    }
+    if (_selectedServer == null) {
+      AcrylicToast.show(context, 'سرور انتخاب نشده', isError: true);
       return;
     }
 
-    AcrylicToast.show(context, 'در حال استعلام از سرور بالانس...', icon: Icons.sync);
+    final parts = _selectedServer!.split(':');
+    final ip = parts[0];
+    final port = int.parse(parts[1]);
 
-    try {
-      final balResponse = await http.get(Uri.parse(_balUrl));
-      if (balResponse.statusCode == 200) {
-        final balanceServer = balResponse.body.split('\n').firstWhere((line) => line.trim().isNotEmpty, orElse: () => "").trim();
-        
-        if (balanceServer.isNotEmpty) {
-          final subUrl = "https://$balanceServer/sub/$vlessId";
-          final subResponse = await http.get(Uri.parse(subUrl));
+    final profile = VlessProfile(
+      id: const Uuid().v4(),
+      name: 'RSFly Dynamic',
+      host: ip,
+      port: port,
+      uuid: uuid,
+      security: 'none',
+      encryption: 'none',
+      transport: VlessTransport.ws,
+      path: '/ws',
+      hostHeader: ip,
+      sni: '',
+      remark: 'Dynamic Connection',
+    );
 
-          if (subResponse.statusCode == 200) {
-            _showBalanceDetailsDialog(subResponse.body);
-          } else {
-            AcrylicToast.show(context, 'خطا از سمت ساب سرور: ${subResponse.statusCode}', isError: true);
-          }
-        } else {
-          AcrylicToast.show(context, 'فایل bal.txt خالی است', isError: true);
-        }
-      } else {
-        AcrylicToast.show(context, 'خطا در دریافت آی‌پی بالانس', isError: true);
-      }
-    } catch (e) {
-      AcrylicToast.show(context, 'خطا در شبکه یا مسدود بودن لینک بالانس', isError: true);
+    final notifier = context.read<ProfileNotifier>();
+    final vpn = context.read<VpnNotifier>();
+
+    await notifier.addOrUpdate(VlessStoredVpnProfile(profile));
+    await notifier.setActive(profile.id);
+
+    final success = await vpn.connect(VlessStoredVpnProfile(profile));
+    if (mounted) {
+      AcrylicToast.show(context, success ? 'در حال اتصال...' : 'اتصال ناموفق', isError: !success);
     }
   }
 
-  void _showBalanceDetailsDialog(String content) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text("اطلاعات حساب و موجودی", textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text(content, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("فهمیدم", style: TextStyle(fontSize: 16)),
-          )
-        ],
-      ),
+  Future<void> _checkBalance() async {
+    if (_balanceServers.isEmpty) {
+      AcrylicToast.show(context, 'لیست بالانس خالی است', isError: true);
+      return;
+    }
+
+    // فعلاً اولین سرور بالانس رو استفاده می‌کنیم (بعداً می‌تونی انتخابی کنی)
+    final server = _balanceServers.first;
+    final parts = server.split(':');
+    final ip = parts[0];
+    final port = int.parse(parts[1]);
+
+    final uuid = _uuidController.text.trim();
+    if (uuid.isEmpty) {
+      AcrylicToast.show(context, 'ابتدا UUID را وارد کنید', isError: true);
+      return;
+    }
+
+    final profile = VlessProfile(
+      id: const Uuid().v4(),
+      name: 'Balance Check',
+      host: ip,
+      port: port,
+      uuid: uuid,
+      security: 'none',
+      encryption: 'none',
+      transport: VlessTransport.ws,
+      path: '/ws',
+      hostHeader: ip,
     );
+
+    final vpn = context.read<VpnNotifier>();
+    final success = await vpn.connect(VlessStoredVpnProfile(profile));
+
+    if (mounted) {
+      AcrylicToast.show(
+        context,
+        success ? 'در حال چک بالانس...' : 'اتصال بالانس ناموفق',
+        isError: !success,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final vpn = context.watch<VpnNotifier>();
-    
-    // هماهنگ‌سازی متن وضعیت با ناتیفایر اصلی پروژه در صورت تغییرات پس‌زمینه
-    String displayStatus = _networkStatus;
-    if (vpn.status == VpnStatus.connected && !_isFetching) {
-      displayStatus = "وضعیت: متصل";
-    } else if (vpn.status == VpnStatus.connecting) {
-      displayStatus = "در حال اتصال…";
-    } else if (vpn.status == VpnStatus.disconnected && displayStatus.startsWith("متصل")) {
-      displayStatus = "وضعیت: قطع شده";
-    }
-
-    final bool isVpnActive = vpn.status == VpnStatus.connected || vpn.status == VpnStatus.connecting;
+    final isConnected = vpn.status == VpnStatus.connected;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'NSSVPN 🚀',
-          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1),
-        ),
+        title: const Text('Asteria Ray 🚀', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // بخش بالایی: دریافت آیدی و کنترلر کانکشن
-              Card(
-                elevation: 3,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _idController,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-                          labelText: 'VLESS ID / UUID',
-                          hintText: 'آیدی اشتراک خود را وارد کنید',
-                          prefixIcon: Icon(Icons.key_rounded),
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton(
-                          onPressed: _isFetching ? null : () => _handleVpnToggle(vpn),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isVpnActive ? Colors.redAccent : Colors.tealAccent[700],
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: _isFetching
-                              ? const CircularProgressIndicator(color: Colors.white)
-                              : Text(
-                                  isVpnActive ? "Stop Connection" : "Start VPN",
-                                  style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold),
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // UUID Input
+            TextField(
+              controller: _uuidController,
+              decoration: const InputDecoration(
+                labelText: 'VLESS UUID / آیدی',
+                border: OutlineInputBorder(),
+                hintText: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+              ),
+              maxLines: 2,
+            ),
+            const SizedBox(height: 20),
+
+            // Server Selector
+            if (_isLoadingServers)
+              const CircularProgressIndicator()
+            else
+              DropdownButtonFormField<String>(
+                value: _selectedServer,
+                decoration: const InputDecoration(
+                  labelText: 'انتخاب سرور',
+                  border: OutlineInputBorder(),
                 ),
+                items: _servers.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                onChanged: (v) => setState(() => _selectedServer = v),
               ),
 
-              // بخش میانی: نمایش زنده وضعیت و ترافیک مصرفی از طریق کانال نیتیو پروژه
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        displayStatus,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                        textAlign: TextAlign.center,
-                      ),
-                      if (vpn.status == VpnStatus.connected) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          '▲ Up: ${(vpn.uploadBytes / 1024 / 1024).toStringAsFixed(2)} MB  |  ▼ Down: ${(vpn.downloadBytes / 1024 / 1024).toStringAsFixed(2)} MB',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.w500),
-                        ),
-                      ]
-                    ],
-                  ),
-                ),
-              ),
+            const SizedBox(height: 30),
 
-              // بخش پایینی: دکمه بررسی موجودی حساب متصل به ساب‌سرور
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: OutlinedButton.icon(
-                  onPressed: _checkAccountBalance,
-                  icon: const Icon(Icons.account_balance_wallet_rounded),
-                  label: const Text("Check Balance", style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.blue, width: 2),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+            // Start / Stop Button
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: isConnected ? () => context.read<VpnNotifier>().disconnect() : _connect,
+                icon: Icon(isConnected ? Icons.stop : Icons.play_arrow),
+                label: Text(isConnected ? 'قطع اتصال' : 'اتصال'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isConnected ? Colors.red : Colors.green,
+                  foregroundColor: Colors.white,
+                  textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ),
-            ],
-          ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Check Balance Button
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: _checkBalance,
+                icon: const Icon(Icons.account_balance_wallet),
+                label: const Text('چک بالانس'),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Colors.orange),
+                  foregroundColor: Colors.orange,
+                ),
+              ),
+            ),
+
+            const Spacer(),
+
+            // Status
+            Text(
+              'وضعیت: ${vpn.status.toString().split('.').last}',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _uuidController.dispose();
+    super.dispose();
   }
 }
