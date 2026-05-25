@@ -33,12 +33,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadServers();
   }
 
-  // ذخیره و بارگذاری رمز (UUID)
   Future<void> _loadSavedUuid() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedUuid = prefs.getString('user_uuid');
-    if (savedUuid != null && savedUuid.isNotEmpty) {
-      _uuidController.text = savedUuid;
+    final saved = prefs.getString('user_uuid');
+    if (saved != null && saved.isNotEmpty) {
+      _uuidController.text = saved;
     }
   }
 
@@ -50,24 +49,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final response = await http.get(Uri.parse('http://srv.rsfly.pro/srv.txt'));
+      final response = await http.get(Uri.parse('https://srv.rsfly.pro/srv.txt'));
       if (response.statusCode == 200) {
         setState(() {
-          _servers = response.body
-              .split('\n')
-              .map((e) => e.trim())
-              .where((e) => e.isNotEmpty && e.contains(':'))
-              .toList();
-          if (_servers.isNotEmpty && _selectedServer == null) {
-            _selectedServer = _servers.first;
-          }
+          _servers = response.body.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
+          if (_servers.isNotEmpty && _selectedServer == null) _selectedServer = _servers.first;
         });
       }
-    } catch (e) {
-      if (mounted) AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
-    } finally {
-      setState(() => _isLoadingServers = false);
-    }
+    } catch (_) {}
+    setState(() => _isLoadingServers = false);
   }
 
   Future<void> _connect() async {
@@ -77,7 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    await _saveUuid(uuid); // ذخیره رمز برای دفعات بعدی
+    await _saveUuid(uuid);
 
     if (_selectedServer == null) {
       AcrylicToast.show(context, 'سرور انتخاب نشده', isError: true);
@@ -90,17 +80,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final profile = VlessProfile(
       id: const Uuid().v4(),
-      name: 'RsFly Connection',
+      name: 'RsFly',
       host: ip,
       port: port,
       uuid: uuid,
-      security: 'none',
+      security: 'tls',           // تغییر به tls برای باز شدن سایت‌ها
       encryption: 'none',
-      transport: VlessTransport.tcp,
+      transport: VlessTransport.tcp,   // همان tcp که خواستی
       path: '',
-      hostHeader: '',
-      sni: '',
-      remark: 'RsFly',
+      hostHeader: ip,
+      sni: ip,                   // مهم برای tls
+      remark: 'RsFly Connection',
     );
 
     final notifier = context.read<ProfileNotifier>();
@@ -122,27 +112,19 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    setState(() => _balanceInfo = 'در حال دریافت اطلاعات...');
+    setState(() => _balanceInfo = 'در حال دریافت...');
 
     try {
-      final url = 'http://185.204.197.76:2096/sub/$uuid';
-      final response = await http.get(Uri.parse(url));
-
+      final response = await http.get(Uri.parse('http://185.204.197.76:2096/sub/$uuid'));
       if (response.statusCode == 200) {
-        final body = response.body;
-
-        // استخراج مقدار Remained
-        final match = RegExp(r'Remained\s*([\d.]+\s*[A-Za-z]+)').firstMatch(body);
+        final match = RegExp(r'Remained\s*([\d.]+\s*[A-Za-z]+)').firstMatch(response.body);
         final remained = match?.group(1) ?? 'نامشخص';
-
-        setState(() {
-          _balanceInfo = 'موجودی باقی‌مانده: $remained';
-        });
+        setState(() => _balanceInfo = 'موجودی باقی‌مانده: $remained');
       } else {
         setState(() => _balanceInfo = 'خطا در دریافت اطلاعات');
       }
     } catch (e) {
-      setState(() => _balanceInfo = 'خطا در اتصال به سرور');
+      setState(() => _balanceInfo = 'خطا در اتصال');
     }
   }
 
@@ -224,24 +206,21 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_balanceInfo.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(16),
+                width: double.infinity,
                 decoration: BoxDecoration(
                   color: Colors.orange.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
                 ),
                 child: Text(
                   _balanceInfo,
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.orange),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
               ),
 
             const Spacer(),
 
-            Text(
-              'وضعیت: ${vpn.status.toString().split('.').last}',
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text('وضعیت: ${vpn.status.toString().split('.').last}'),
           ],
         ),
       ),
