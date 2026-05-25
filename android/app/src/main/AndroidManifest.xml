@@ -8,8 +8,8 @@
     <application
         android:extractNativeLibs="true"
         android:largeHeap="true"
-        android:label="AsteriaRay"
-        android:name=".AsteriaApplication"
+        android:label="RsFly VPN"
+        android:name=".RsFlyApplication"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
