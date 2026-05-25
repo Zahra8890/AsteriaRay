@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/stored_vpn_profile.dart';
 import '../models/vless_profile.dart';
 import '../models/vless_types.dart';
@@ -28,21 +29,42 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _loadSavedUuid();
     _loadServers();
+  }
+
+  // ذخیره و بارگذاری رمز (UUID)
+  Future<void> _loadSavedUuid() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUuid = prefs.getString('user_uuid');
+    if (savedUuid != null && savedUuid.isNotEmpty) {
+      _uuidController.text = savedUuid;
+    }
+  }
+
+  Future<void> _saveUuid(String uuid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_uuid', uuid);
   }
 
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final response = await http.get(Uri.parse('http://panel.rsfly.pro/srv.txt'));
+      final response = await http.get(Uri.parse('https://srv.rsfly.pro/srv.txt'));
       if (response.statusCode == 200) {
         setState(() {
-          _servers = response.body.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
-          if (_servers.isNotEmpty) _selectedServer = _servers.first;
+          _servers = response.body
+              .split('\n')
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty && e.contains(':'))
+              .toList();
+          if (_servers.isNotEmpty && _selectedServer == null) {
+            _selectedServer = _servers.first;
+          }
         });
       }
     } catch (e) {
-      AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
+      if (mounted) AcrylicToast.show(context, 'خطا در بارگذاری سرورها', isError: true);
     } finally {
       setState(() => _isLoadingServers = false);
     }
@@ -54,6 +76,9 @@ class _HomeScreenState extends State<HomeScreen> {
       AcrylicToast.show(context, 'لطفاً رمز خود را وارد کنید', isError: true);
       return;
     }
+
+    await _saveUuid(uuid); // ذخیره رمز برای دفعات بعدی
+
     if (_selectedServer == null) {
       AcrylicToast.show(context, 'سرور انتخاب نشده', isError: true);
       return;
@@ -71,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
       uuid: uuid,
       security: 'none',
       encryption: 'none',
-      transport: VlessTransport.tcp,        // تغییر به tcp (مطابق مثال شما)
+      transport: VlessTransport.tcp,
       path: '',
       hostHeader: '',
       sni: '',
@@ -97,17 +122,18 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    setState(() => _balanceInfo = 'در حال دریافت...');
+    setState(() => _balanceInfo = 'در حال دریافت اطلاعات...');
 
     try {
-      final url = 'http://185.204.197.76:2096/sub/$uuid';   // ساب لینک
+      final url = 'http://185.204.197.76:2096/sub/$uuid';
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final body = response.body;
-        // استخراج Remained
-        final remainedMatch = RegExp(r'Remained\s*([\d.]+[A-Za-z]+)').firstMatch(body);
-        final remained = remainedMatch?.group(1) ?? 'نامشخص';
+
+        // استخراج مقدار Remained
+        final match = RegExp(r'Remained\s*([\d.]+\s*[A-Za-z]+)').firstMatch(body);
+        final remained = match?.group(1) ?? 'نامشخص';
 
         setState(() {
           _balanceInfo = 'موجودی باقی‌مانده: $remained';
@@ -116,7 +142,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _balanceInfo = 'خطا در دریافت اطلاعات');
       }
     } catch (e) {
-      setState(() => _balanceInfo = 'خطا: $e');
+      setState(() => _balanceInfo = 'خطا در اتصال به سرور');
     }
   }
 
@@ -137,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
             TextField(
               controller: _uuidController,
               decoration: const InputDecoration(
-                labelText: 'رمز شما (UUID)',
+                labelText: 'رمز شما',
                 border: OutlineInputBorder(),
                 hintText: '6ec34d88-cc3f-4fdd-bc60-f72a266dca06',
               ),
@@ -197,14 +223,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
             if (_balanceInfo.isNotEmpty)
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.orange.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
                 ),
                 child: Text(
                   _balanceInfo,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orange),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.orange),
                   textAlign: TextAlign.center,
                 ),
               ),
