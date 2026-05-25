@@ -57,20 +57,16 @@ class _HomeScreenState extends State<HomeScreen> {
           final ip = parts[0].trim();
           final port = int.parse(parts[1].trim());
 
-          // ساخت آبجکت نیتیو VlessProfile مطابق با پکیج مدل‌های AsteriaRay
-          final dynamicProfile = VlessStoredVpnProfile(
-            id: 'dynamic_active_profile',
+          // ساخت آبجکت نیتیو VlessProfile مطابق با پکیج مدل‌های واقعی پروژه AsteriaRay
+          final dynamicProfile = VlessProfile(
             name: 'RSFly Dynamic',
-            protocol: VpnProtocol.vless,
-            profile: VlessProfile(
-              name: 'RSFly Dynamic',
-              host: ip,
-              port: port,
-              uuid: vlessId,
-              encryption: 'none',
-              network: 'ws', // ساختار پیش‌فرض، بر اساس سرور قابل تغییر است
-              security: 'none',
-            ),
+            address: ip,
+            port: port,
+            uuid: vlessId,
+            path: '/ws', // به جای متغیر مجزا، متغیر به عنوان پیش‌فرض پث ست شد
+            host: ip,
+            tls: false,
+            sni: '',
           );
 
           setState(() {
@@ -169,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'RSFly Client 🚀',
+          'NSSVPN 🚀',
           style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.1),
         ),
         centerTitle: true,
