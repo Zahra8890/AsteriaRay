@@ -1,4 +1,4 @@
-package vpn.asteria.com
+package com.rsfly.vpn
 
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -21,13 +21,13 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val statsExecutor = Executors.newSingleThreadExecutor()
-    /** VPN handoff uses [CountDownLatch.await]; must not run on the main thread (onDestroy runs on main). */
     private val vpnHandoffExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val channelName = "asteriaray/vpn"
     private val eventChannelName = "asteriaray/vpn/events"
     private val requestVpn = 1001
+
     private var pendingResult: MethodChannel.Result? = null
     private var methodChannel: MethodChannel? = null
     private var eventSink: EventChannel.EventSink? = null
@@ -40,6 +40,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         methodChannel?.setMethodCallHandler(::handleMethodCall)
 
@@ -60,13 +61,13 @@ class MainActivity : FlutterActivity() {
             IntentFilter(LibxrayVpnService.ACTION_XRAY_VPN_STOPPED),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
+
         AwgVpnController.setOnStoppedCallback {
             eventSink?.success(EVENT_VPN_STOPPED_AWG)
         }
     }
 
     companion object {
-        /** EventChannel payloads — Dart filters stale teardown vs active tunnel. */
         const val EVENT_VPN_STOPPED_VLESS = "vpnStopped:vless"
         const val EVENT_VPN_STOPPED_AWG = "vpnStopped:awg"
     }
@@ -103,29 +104,19 @@ class MainActivity : FlutterActivity() {
                         Pair(0L, 0L)
                     }
                     mainHandler.post {
-                        result.success(
-                            mapOf(
-                                "upload" to stats.first,
-                                "download" to stats.second,
-                            ),
-                        )
+                        result.success(mapOf("upload" to stats.first, "download" to stats.second))
                     }
                 }
             }
-            "isTunnelProcessRunning" -> {
-                result.success(LibxrayVpnService.isXrayTunnelRunning(this@MainActivity))
-            }
-            "isVpnTunnelEstablished" -> {
-                result.success(VlessTunnelProcess.isVpnTunEstablished(this@MainActivity))
-            }
-            "getLastVlessStartError" -> {
-                result.success(VlessTunnelProcess.getLastStartError(this@MainActivity))
-            }
+            "isTunnelProcessRunning" -> result.success(LibxrayVpnService.isXrayTunnelRunning(this@MainActivity))
+            "isVpnTunnelEstablished" -> result.success(VlessTunnelProcess.isVpnTunEstablished(this@MainActivity))
+            "getLastVlessStartError" -> result.success(VlessTunnelProcess.getLastStartError(this@MainActivity))
             else -> result.notImplemented()
         }
     }
 
     private fun handleStartVpn(call: MethodCall, result: MethodChannel.Result) {
+
         val mode = call.argument<String>("mode") ?: "singbox"
         if (mode == "awg") {
             val conf = call.argument<String>("conf")
@@ -170,19 +161,18 @@ class MainActivity : FlutterActivity() {
             result.error("args", "Missing configPath", null)
             return
         }
+
         vpnHandoffExecutor.execute {
             AwgVpnController.setSuppressStoppedEvent(true)
             try {
                 val hadAwgTunnel = AwgVpnController.isActive()
-                // Tunnel can be DOWN while AsteriaAwgVpnService is still alive (async stopSelf / onDestroy).
                 val awgServiceAlive = AsteriaAwgVpnService.isServiceInstanceAlive()
                 val awgUsedBefore = AwgVpnController.awgWasUsedThisProcess
                 val needAwgTeardownWait = hadAwgTunnel || awgServiceAlive
                 val awgLatch = if (needAwgTeardownWait) {
                     CountDownLatch(1).also { AsteriaAwgVpnService.armDestroyLatch(it) }
-                } else {
-                    null
-                }
+                } else null
+
                 try {
                     AwgVpnController.stopSync(this@MainActivity)
                     if (awgUsedBefore || awgServiceAlive) {
@@ -196,19 +186,14 @@ class MainActivity : FlutterActivity() {
                 } finally {
                     if (needAwgTeardownWait) AsteriaAwgVpnService.clearDestroyLatch()
                 }
-                // VLESS→AWG: Xray VPN service onDestroy is waited. AWG→VLESS: stopSync is often a no-op while wg-go
-                // still unwinds — long cooldown when awgWasUsedThisProcess (see AwgVpnController).
-                // After AWG, wg-go must fully quiesce — keep startForegroundService off the UI thread here.
+
                 val cooldownMs = when {
                     needAwgTeardownWait -> 1800L
                     awgUsedBefore -> 3500L
                     else -> 200L
                 }
                 sleepAfterVpnHandoff(cooldownMs)
-                Log.i(
-                    "MainActivity",
-                    "VLESS handoff: after ${cooldownMs}ms cooldown → Xray start on handoff thread (hadTunnel=$hadAwgTunnel awgAlive=$awgServiceAlive needWait=$needAwgTeardownWait awgUsedBefore=$awgUsedBefore)",
-                )
+
                 LibxrayVpnService.start(this@MainActivity, configPath, profileName, transport)
                 mainHandler.post { result.success(true) }
             } catch (e: Exception) {
@@ -220,15 +205,10 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    /**
-     * Android releases the VPN slot asynchronously after [VpnService.stopSelf]. Starting another
-     * VpnService (Xray vs AmneziaWG) immediately can crash or fail establish(); a short pause avoids that.
-     */
     private fun sleepAfterVpnHandoff(ms: Long) {
         try {
             Thread.sleep(ms)
-        } catch (_: InterruptedException) {
-        }
+        } catch (_: InterruptedException) {}
     }
 
     private fun prepareVpn(result: MethodChannel.Result) {
@@ -256,8 +236,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         try {
             unregisterReceiver(xrayVpnStoppedReceiver)
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
         super.onDestroy()
     }
 }
