@@ -21,8 +21,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isFetching = false;
   String _networkStatus = "وضعیت: قطع شده";
 
-  final String _srvUrl = "http://srv.rsfly.pro/srv.txt";
-  final String _balUrl = "http://srv.rsfly.pro/bal.txt";
+  final String _srvUrl = "https://srv.rsfly.pro/srv.txt";
+  final String _balUrl = "https://srv.rsfly.pro/bal.txt";
 
   // ۱. منطق دریافت آنلاین سرور و استارت زدن VPN پروژه‌ی AsteriaRay
   Future<void> _handleVpnToggle(VpnNotifier vpnNotifier) async {
