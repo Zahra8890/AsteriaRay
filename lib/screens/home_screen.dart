@@ -57,14 +57,15 @@ class _HomeScreenState extends State<HomeScreen> {
           final ip = parts[0].trim();
           final port = int.parse(parts[1].trim());
 
-          // ساخت آبجکت نیتیو VlessProfile مطابق با پکیج مدل‌های واقعی پروژه AsteriaRay
+          // ساخت آبجکت نیتیو VlessProfile کاملاً مطابق با پارامترهای مجاز پروژه‌ی شما
           final dynamicProfile = VlessProfile(
             name: 'RSFly Dynamic',
-            address: ip,
+            host: ip,
             port: port,
             uuid: vlessId,
-            path: '/ws', // به جای متغیر مجزا، متغیر به عنوان پیش‌فرض پث ست شد
-            host: ip,
+            path: '/ws',
+            encryption: 'none',
+            security: 'none',
             tls: false,
             sni: '',
           );
