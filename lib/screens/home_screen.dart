@@ -50,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final response = await http.get(Uri.parse('https://srv.rsfly.pro/srv.txt'));
+      final response = await http.get(Uri.parse('http://srv.rsfly.pro/srv.txt'));
       if (response.statusCode == 200) {
         setState(() {
           _servers = response.body
