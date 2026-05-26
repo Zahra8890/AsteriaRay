@@ -36,9 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadSavedUuid() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('user_uuid');
-    if (saved != null && saved.isNotEmpty) {
-      _uuidController.text = saved;
-    }
+    if (saved != null && saved.isNotEmpty) _uuidController.text = saved;
   }
 
   Future<void> _saveUuid(String uuid) async {
@@ -49,11 +47,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadServers() async {
     setState(() => _isLoadingServers = true);
     try {
-      final response = await http.get(Uri.parse('http://srv.rsfly.pro/srv.txt'));
-      if (response.statusCode == 200) {
+      final res = await http.get(Uri.parse('http://srv.rsfly.pro/srv.txt'));
+      if (res.statusCode == 200) {
         setState(() {
-          _servers = response.body.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty && e.contains(':')).toList();
-          if (_servers.isNotEmpty && _selectedServer == null) _selectedServer = _servers.first;
+          _servers = res.body.split('\n').map((e) => e.trim()).where((e) => e.contains(':')).toList();
+          if (_servers.isNotEmpty) _selectedServer = _servers.first;
         });
       }
     } catch (_) {}
@@ -69,10 +67,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     await _saveUuid(uuid);
 
-    if (_selectedServer == null) {
-      AcrylicToast.show(context, 'سرور انتخاب نشده', isError: true);
-      return;
-    }
+    if (_selectedServer == null) return;
 
     final parts = _selectedServer!.split(':');
     final ip = parts[0];
@@ -80,17 +75,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final profile = VlessProfile(
       id: const Uuid().v4(),
-      name: 'RsFly',
+      name: 'RsFly',                    // کوتاه و تمیز
       host: ip,
       port: port,
       uuid: uuid,
-      security: 'tls',           // تغییر به tls برای باز شدن سایت‌ها
+      security: 'tls',
       encryption: 'none',
-      transport: VlessTransport.tcp,   // همان tcp که خواستی
+      transport: VlessTransport.tcp,
       path: '',
       hostHeader: ip,
-      sni: ip,                   // مهم برای tls
-      remark: 'RsFly Connection',
+      sni: ip,
+      remark: 'RsFly',
     );
 
     final notifier = context.read<ProfileNotifier>();
@@ -108,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _checkBalance() async {
     final uuid = _uuidController.text.trim();
     if (uuid.isEmpty) {
-      AcrylicToast.show(context, 'ابتدا رمز خود را وارد کنید', isError: true);
+      AcrylicToast.show(context, 'رمز خود را وارد کنید', isError: true);
       return;
     }
 
@@ -117,14 +112,17 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final response = await http.get(Uri.parse('http://185.204.197.76:2096/sub/$uuid'));
       if (response.statusCode == 200) {
-        final match = RegExp(r'Remained\s*([\d.]+\s*[A-Za-z]+)').firstMatch(response.body);
+        final body = response.body;
+
+        final match = RegExp(r'Remained\s*([\d.]+\s*GB)', caseSensitive: false).firstMatch(body);
         final remained = match?.group(1) ?? 'نامشخص';
+
         setState(() => _balanceInfo = 'موجودی باقی‌مانده: $remained');
       } else {
         setState(() => _balanceInfo = 'خطا در دریافت اطلاعات');
       }
     } catch (e) {
-      setState(() => _balanceInfo = 'خطا در اتصال');
+      setState(() => _balanceInfo = 'خطا در اتصال به سرور');
     }
   }
 
@@ -139,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
         centerTitle: true,
       ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           children: [
             TextField(
@@ -147,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: const InputDecoration(
                 labelText: 'رمز شما',
                 border: OutlineInputBorder(),
-                hintText: '6ec34d88-cc3f-4fdd-bc60-f72a266dca06',
               ),
               maxLines: 2,
             ),
@@ -158,23 +155,19 @@ class _HomeScreenState extends State<HomeScreen> {
             else
               DropdownButtonFormField<String>(
                 value: _selectedServer,
-                decoration: const InputDecoration(
-                  labelText: 'انتخاب سرور',
-                  border: OutlineInputBorder(),
-                ),
+                decoration: const InputDecoration(labelText: 'انتخاب سرور', border: OutlineInputBorder()),
                 items: _servers.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
                 onChanged: (v) => setState(() => _selectedServer = v),
               ),
 
             const SizedBox(height: 30),
 
+            // Connect Button
             SizedBox(
               width: double.infinity,
               height: 56,
               child: ElevatedButton.icon(
-                onPressed: isConnected 
-                    ? () => context.read<VpnNotifier>().disconnect() 
-                    : _connect,
+                onPressed: isConnected ? () => context.read<VpnNotifier>().disconnect() : _connect,
                 icon: Icon(isConnected ? Icons.stop : Icons.play_arrow),
                 label: Text(isConnected ? 'قطع اتصال' : 'اتصال'),
                 style: ElevatedButton.styleFrom(
@@ -187,6 +180,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 16),
 
+            // Balance Button
             SizedBox(
               width: double.infinity,
               height: 50,
@@ -194,10 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: _checkBalance,
                 icon: const Icon(Icons.account_balance_wallet),
                 label: const Text('چک بالانس'),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.orange),
-                  foregroundColor: Colors.orange,
-                ),
+                style: OutlinedButton.styleFrom(foregroundColor: Colors.orange),
               ),
             ),
 
@@ -206,20 +197,14 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_balanceInfo.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(16),
-                width: double.infinity,
                 decoration: BoxDecoration(
                   color: Colors.orange.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  _balanceInfo,
-                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
+                child: Text(_balanceInfo, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
               ),
 
             const Spacer(),
-
             Text('وضعیت: ${vpn.status.toString().split('.').last}'),
           ],
         ),
