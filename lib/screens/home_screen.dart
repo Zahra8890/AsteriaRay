@@ -36,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadSavedUuid() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('user_uuid');
-    if (saved != null && saved.isNotEmpty) _uuidController.text = saved;
+    if (saved != null) _uuidController.text = saved;
   }
 
   Future<void> _saveUuid(String uuid) async {
@@ -75,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final profile = VlessProfile(
       id: const Uuid().v4(),
-      name: 'RsFly',                    // کوتاه و تمیز
+      name: 'RsFly',                    // نام کوتاه و تمیز
       host: ip,
       port: port,
       uuid: uuid,
@@ -84,7 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
       transport: VlessTransport.tcp,
       path: '',
       hostHeader: ip,
-      sni: ip,
+      sni: ip,                          // خیلی مهم برای باز شدن سایت‌ها
       remark: 'RsFly',
     );
 
@@ -112,17 +112,14 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final response = await http.get(Uri.parse('http://185.204.197.76:2096/sub/$uuid'));
       if (response.statusCode == 200) {
-        final body = response.body;
-
-        final match = RegExp(r'Remained\s*([\d.]+\s*GB)', caseSensitive: false).firstMatch(body);
+        final match = RegExp(r'Remained\s*([\d.]+\s*GB)', caseSensitive: false).firstMatch(response.body);
         final remained = match?.group(1) ?? 'نامشخص';
-
         setState(() => _balanceInfo = 'موجودی باقی‌مانده: $remained');
       } else {
         setState(() => _balanceInfo = 'خطا در دریافت اطلاعات');
       }
     } catch (e) {
-      setState(() => _balanceInfo = 'خطا در اتصال به سرور');
+      setState(() => _balanceInfo = 'خطا در اتصال');
     }
   }
 
@@ -162,7 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 30),
 
-            // Connect Button
             SizedBox(
               width: double.infinity,
               height: 56,
@@ -180,7 +176,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
             const SizedBox(height: 16),
 
-            // Balance Button
             SizedBox(
               width: double.infinity,
               height: 50,
@@ -197,10 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_balanceInfo.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
                 child: Text(_balanceInfo, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
               ),
 
