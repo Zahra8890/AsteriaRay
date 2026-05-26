@@ -75,16 +75,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final profile = VlessProfile(
       id: const Uuid().v4(),
-      name: 'RsFly',                    // نام کوتاه و بدون VLESS-TCP
+      name: 'RsFly',                    // نام کوتاه — دیگر VLESS-TCP نشان نمی‌دهد
       host: ip,
       port: port,
       uuid: uuid,
-      security: 'tls',
+      security: 'none',                 // دقیقاً همان چیزی که خواستی
       encryption: 'none',
       transport: VlessTransport.tcp,
       path: '',
-      hostHeader: ip,
-      sni: ip,
+      hostHeader: '',
+      sni: '',
       remark: 'RsFly',
     );
 
